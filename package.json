@@ -1,0 +1,26 @@
+{
+  "name": "rolldown-chunk-split-cjs-repro",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
+    "@mui/material": "^7.3.6",
+    "@tanstack/react-query": "^4.36.1",
+    "clsx": "^2.1.1",
+    "lodash": "4.17.23",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tss-react": "^4.9.21"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "6.0.2",
+    "vite": "8.0.13"
+  }
+}
