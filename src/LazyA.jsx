@@ -1,24 +1,17 @@
-import { Button } from "@mui/material";
-import { withStyles } from "tss-react/mui";
+import _ from "lodash";
 import get from "lodash/get";
 import has from "lodash/has";
+import { utilA } from "./util-a.js";
 
-// Mimics a legacy class-styles component (tss-react/withStyles)
-// that imports CJS submodules from lodash. The failing real-world
-// chunk had this exact shape.
-const styles = {
-  root: { color: "blue" },
-};
+const sample = { a: { value: 42 } };
 
-function LazyAComponent(props) {
-  const sample = { nested: { value: 42 } };
+export default function LazyA() {
   return (
-    <div className={get(props, ["className"], "")}>
-      <p>LazyA: get nested.value = {get(sample, ["nested", "value"], 0)}</p>
-      <p>LazyA: has nested = {String(has(sample, ["nested"]))}</p>
-      <Button variant="contained">MUI Button</Button>
+    <div>
+      <p>LazyA: _.toLower = {_.toLower("HELLO")}</p>
+      <p>LazyA: get nested.value = {get(sample, ["a", "value"], 0)}</p>
+      <p>LazyA: has a = {String(has(sample, ["a"]))}</p>
+      <p>LazyA: utilA = {utilA(sample)}</p>
     </div>
   );
 }
-
-export default withStyles(LazyAComponent, styles);
