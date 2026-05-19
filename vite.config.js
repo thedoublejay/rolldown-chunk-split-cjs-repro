@@ -1,15 +1,16 @@
+
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { resolve } from "node:path";
 
-// Mirrors a real-world failing config: @emotion/react as the JSX runtime
-// and rolldown.moduleTypes mapping .js → jsx (some legacy codebases put
-// JSX in .js files). Either condition alone might be enough — kept both
-// to match the original setup that surfaced the bug.
 export default defineConfig({
-  plugins: [react({ jsxImportSource: "@emotion/react" })],
+  plugins: [react()],
   build: {
-    rolldownOptions: {
-      moduleTypes: { ".js": "jsx" },
+    rollupOptions: {
+      input: {
+        main: resolve(__dirname, "index.html"),
+        page2: resolve(__dirname, "page2.html"),
+      },
     },
   },
 });

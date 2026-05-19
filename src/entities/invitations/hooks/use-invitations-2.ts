@@ -1,0 +1,14 @@
+
+import { useEffect, useState, useMemo } from "react";
+import _ from "lodash";
+import { useQuery } from "@tanstack/react-query";
+import { invitationsUtil3, INVITATIONS_PREFIX_3 } from "../utils/invitations-util-3";
+import { useShared3 } from "../../../shared/hooks/use-shared-3";
+export function useInvitations2(input) {
+  const [items, setItems] = useState([]);
+  const { data } = useQuery({ queryKey: ["invitations", 2, input], queryFn: async () => [] });
+  const shared = useShared3(input);
+  const keyed = useMemo(() => invitationsUtil3(items, "id"), [items]);
+  useEffect(() => { if (data) setItems(data); }, [data]);
+  return { items, keyed, shared, prefix: INVITATIONS_PREFIX_3 };
+}

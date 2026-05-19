@@ -1,83 +1,77 @@
-# rolldown chunk-split CJS interop repro
+# rolldown chunk-split CJS interop repro — synthetic-scale attempt
 
 Companion repository to <https://github.com/rolldown/rolldown/issues/9441>.
 
-## TL;DR
+## Status
 
-In vite 8.0.12+ (rolldown 1.0.0 / 1.0.1), a production build can emit a
-**cyclic graph between vendor chunks**, where each chunk exposes
-`__commonJSMin`-wrapped CJS modules as `var` bindings. When a lazy chunk
-imports one of those bindings and calls it at module-init time inside the
-cycle, the importer reads `undefined` and throws:
+**Best-effort scaled reproduction — does not cycle on its own at this scale.** This repo mirrors the failing app's structural patterns (1,121 source files, 120 React.lazy routes, mixed CJS/ESM vendor deps, legacy + modern code, tss-react `withStyles` with `lodash/<sub>` defaults, `import.meta.glob` lazy routing, multi-entry HTML with overlapping lazy sets) but rolldown's default chunker successfully avoids cycles for this graph.
 
-```
-TypeError: c is not a function
-    at app.<hash>.chunk.js:1:272
-Caused by: React ErrorBoundary
-    at Lazy (<anonymous>)
-    at Suspense (<anonymous>)
-```
+In the real-world failing app (~5,000 modules, similar deps and patterns), vite `8.0.13` (rolldown `1.0.1`) produces **8,678 chunk cycles** including the production-failure shape — and vite `8.0.11` (rolldown `1.0.0-rc.18`) on the *same source* produces **0 cycles**. So the same graph crosses the chunker's threshold at production scale that this synthetic does not.
 
-The same source code built with vite **8.0.11** (rolldown `1.0.0-rc.18`)
-emits no such cycle and loads correctly.
+## What this repo demonstrates
 
-## What's in this repo
+- Production-realistic Vite 8 + React 19 setup with `@mui/material`, `@mui/x-data-grid`, `@mui/x-date-pickers`, `@tanstack/react-query`, `@emotion/styled`, `tss-react`, `react-hook-form`, `react-router`, `zustand`, `yup`, `lodash` (main + subpath), `clsx`, `date-fns`
+- 30 entity modules × {components, hooks, utils} + 60 legacy components in cyclic legacy containers + 50 shared "glue" components + 40 shared MUI wrappers
+- 120 lazy routes via `import.meta.glob` and two HTML entries (`index.html`, `page2.html`) with overlapping lazy sets
+- A `barrel.tsx` that re-exports many shared utilities and references legacy components — produces a `barrel-<hash>.js` shared chunk in the output graph
+- A `jsx-runtime-<hash>.js` extracted chunk (matches the shape from rolldown's own [#9331](https://github.com/rolldown/rolldown/issues/9331) regression)
+- Every Route chunk has the **exact emission pattern** that fails in production:
 
-### `cycle-demo/` — pure-Node demonstration of the JS-level mechanism
+  ```js
+  import { S as e, b as t, t as n } from "./jsx-runtime-<hash>.js";
+  import { ... } from "./barrel-<hash>.js";
+  var g = e(t(), 1);           // ← this shape fails when t is in a TDZ cycle
+  ```
 
-```bash
-node cycle-demo/entry.js
-```
+  In the failing app `t` reads back as `undefined` because the chunk graph contains a cycle that puts it in a not-yet-initialised state at module init. In this synthetic the chunk graph is acyclic, so `t` is initialised by the time the call runs.
 
-Two ESM modules circularly import each other; both export `var`-bound
-`__commonJSMin` wrappers; one calls the other's wrapper at module init.
-Reproduces the exact `"x is not a function"` error with zero bundler
-involvement. This is the JS spec at work — but it's the trap rolldown's
-new chunker drops production bundles into.
-
-### Root (`src/`) — Vite production build under conditions that matched the failing app
+## Build / preview
 
 ```bash
 npm install
-npm run build       # vite 8.0.13 + rolldown 1.0.1
-npm run preview     # http://localhost:4173
+npm run build         # vite 8.0.13 + rolldown 1.0.1
+npm run preview       # http://localhost:4173
 ```
 
-The Vite project sets up:
+## Bisect evidence (from the real-world failing app)
 
-- 3 × `React.lazy(() => import(...))` boundaries, each importing both the
-  lodash main entry (`lodash`) and lodash CJS subpaths (`lodash/get` etc.)
-- Source-level circular imports between `util-a.js` and `util-b.js`
-- `vite.config.js` mirrors the failing app's distinctive flags:
-  `react({ jsxImportSource: "@emotion/react" })` and
-  `rolldown.moduleTypes: { ".js": "jsx" }`
+| vite (rolldown) | Cyclic chunk imports |
+| --- | --- |
+| `8.0.11` (`1.0.0-rc.18`) | **0** |
+| `8.0.13` (`1.0.1`) | **8678** |
 
-**Status:** rolldown chooses to inline both halves of the source-level
-cycle into a single shared chunk here, so the chunk graph stays acyclic
-and the bug does not surface. In a larger codebase (~5000 modules, dozens
-of shared chunks, deeper dependency interleaving) rolldown ends up
-emitting cycles between separate vendor chunks instead — that's the case
-where the JS-level mechanism in `cycle-demo/` then triggers at runtime.
+Smallest cycle observed:
 
-I haven't yet found the smaller graph shape that tips rolldown's chunker
-into emitting cyclic vendor chunks for the same `package.json`. A
-maintainer hint on what changed in chunk emission between
-`1.0.0-rc.18` → `1.0.0` / `1.0.1` for this case would let me shrink the
-repo further.
+```
+big-vendor.chunk.js  (1.7 MB, 1196 sources — lodash + @mui + @tanstack + ~700 app sources)
+  imports "t as Wd" from
+mid-legacy.chunk.js  (34 KB, 4 sources — two legacy form components + their styles)
+  imports "t as w" from
+button.chunk.js      (9 KB, 2 sources — legacy <Button1> + its styles, uses lodash/get)
+  imports "T as c" from
+big-vendor.chunk.js  ← cycle closes back
+```
 
-## Bisect
+`T as c` is `lodash/get`'s `__commonJSMin` wrapper. The cycle puts that `var` binding in TDZ-equivalent state when the button chunk's top-level `var d = a(c())` runs, so `c` reads `undefined` → `TypeError: c is not a function`.
 
-| Vite version | Bundled rolldown | Status |
-|---|---|---|
-| 8.0.1  | `1.0.0-rc.10` | ✅ works |
-| 8.0.11 | `1.0.0-rc.18` | ✅ works |
-| 8.0.12 | `1.0.0`       | ⚠ likely affected (same rolldown family — not directly retested) |
-| 8.0.13 | `1.0.1`       | ❌ reproduces (`TypeError: c is not a function`) |
+## Reproduction shapes I tried that all stayed acyclic at this scale
 
-Bisect was carried out against the real-world failing app: same source,
-same install state, only the Vite/rolldown version changed.
+- The [#9331](https://github.com/rolldown/rolldown/issues/9331) fixture verbatim
+- 3-way util cycle imported by N lazy routes
+- Source-level `.cjs` cycles with top-level cross-chunk calls
+- 100-module shared registry pulling many `lodash/<sub>` paths
+- `manualChunks` forcing the cycle (works — but builds the same on rc.18, so it's not the regression)
+- Multi-entry vite with overlapping lazy sets (this repo's current state)
+- `import.meta.glob` lazy routing (this repo's current state)
+- `barrel.tsx` JSX component to force a `barrel → jsx-runtime` edge
 
-Also ruled out by separate bisects against the failing app:
-- `lodash`/`lodash-es` version (`4.17.23` vs `4.18.1`)
-- `@vitejs/plugin-react` version (`6.0.0` vs `6.0.2`)
-- `react` / `react-dom` version (`19.0` vs `19.2.6`)
+The chunker is robust at every shape I could construct at ~1,000-file scale.
+
+## Hypothesis
+
+The chunker change in vite `8.0.12` → `8.0.13` (rolldown `1.0.0` → `1.0.1`) came from two PRs:
+
+- v1.0.0 [#9270](https://github.com/rolldown/rolldown/pull/9270) — *implement dynamic dominator merge logic*
+- v1.0.1 [#9305](https://github.com/rolldown/rolldown/pull/9305) — *chunk-optimization: dedupe already-loaded dynamic deps*
+
+[#9305](https://github.com/rolldown/rolldown/pull/9305) covered the [#9331](https://github.com/rolldown/rolldown/issues/9331) case (confirmed — fixture builds cleanly). The hypothesis is it didn't cover an adjacent case the production graph hits, where the "intersection of loaded atoms from every importer entry" check leaves a `var`-bound `__commonJSMin` wrapper TDZ-exposed across the cycle.
